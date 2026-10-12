@@ -217,15 +217,15 @@ def test_add():
     return jsonify({"success": True, "added": amount})
 
 
-@app.post("/api/recognize")
+@app.post("/api/upload-image")
 def recognize_money():
-    if "image" not in request.files:
+    if "photo" not in request.files:
         return jsonify({
             "success": False,
             "error": "Walang larawang natanggap."
         }), 400
 
-    file = request.files["image"]
+    file = request.files["photo"]
 
     try:
         image = Image.open(file.stream)
