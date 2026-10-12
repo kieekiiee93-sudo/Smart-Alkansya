@@ -1,4 +1,5 @@
-
+from io import BytesIO
+from PIL import Image
 import os
 import sqlite3
 from flask import Flask, jsonify, render_template_string, request
@@ -109,27 +110,49 @@ document.getElementById("start").onclick = async () => {
   }
 };
 
-document.getElementById("capture").onclick = () => {
+document.getElementById("capture").onclick = async () => {
   if (!video.videoWidth) {
     statusText.textContent = "Buksan muna ang camera.";
     return;
   }
+
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
-  canvas.getContext("2d").drawImage(video, 0, 0);
-  statusText.textContent =
-    "Larawan nakuha. Hindi pa awtomatikong nakikilala ang halaga ng pera.";
-};
 
-async function refreshBalance() {
-  const res = await fetch("/api/balance");
-  const data = await res.json();
-  document.getElementById("balance").textContent =
-    "₱" + Number(data.balance).toLocaleString("en-PH", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    });
-}
+  canvas.getContext("2d").drawImage(
+    video, 0, 0, canvas.width, canvas.height
+  );
+
+  statusText.textContent = "Ipinapadala ang larawan...";
+
+  canvas.toBlob(async (blob) => {
+    if (!blob) {
+      statusText.textContent = "Hindi makuha ang larawan.";
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("photo", blob, "money.jpg");
+
+    try {
+      const response = await fetch("/api/upload-image", {
+        method: "POST",
+        body: formData
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Upload failed.");
+      }
+
+      statusText.textContent =
+        "Upload successful! Hindi pa nakikilala ang halaga ng pera.";
+    } catch (error) {
+      statusText.textContent = "Upload error: " + error.message;
+    }
+  }, "image/jpeg", 0.85);
+};
 
 document.getElementById("add").onclick = async () => {
   message.textContent = "Pinoproseso...";
@@ -192,6 +215,52 @@ def test_add():
         )
 
     return jsonify({"success": True, "added": amount})
+
+
+@app.post("/api/recognize")
+def recognize_money():
+    if "image" not in request.files:
+        return jsonify({
+            "success": False,
+            "error": "Walang larawang natanggap."
+        }), 400
+
+    file = request.files["image"]
+
+    try:
+        image = Image.open(file.stream)
+        image.verify()
+
+        # Re-open and validate image dimensions.
+        file.stream.seek(0)
+        image = Image.open(file.stream).convert("RGB")
+
+        width, height = image.size
+
+        if width < 100 or height < 100:
+            return jsonify({
+                "success": False,
+                "error": "Masyadong maliit ang larawan."
+            }), 400
+
+        # Recognition model will be connected in the next step.
+        return jsonify({
+            "success": True,
+            "uploaded": True,
+            "recognized": False,
+            "width": width,
+            "height": height,
+            "message": (
+                "Natanggap ang larawan. "
+                "Hindi pa naka-install ang money recognition model."
+            )
+        })
+
+    except Exception:
+        return jsonify({
+            "success": False,
+            "error": "Hindi mabasa ang larawan. Subukan ulit."
+        }), 400
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
